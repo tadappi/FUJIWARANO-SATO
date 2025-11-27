@@ -146,13 +146,13 @@
     // 高さを基準に幅を決める（画像比を厳守）
     label.scale.set(heightWorld, heightWorld, 1); // 仮
     label.position.set(...offset);
-    label.visible = false;
+    label.visible = true;                  // ★ 最初から表示する
     label.userData = { fitByImage: true, targetH: heightWorld };
     parent.add(label);
     return label;
   }
 
-  // 共通ピン（ホバーでラベル、色変化オプション）
+  // 共通ピン（ホバーで色変化、ラベルは常時表示）
   function createPin({
     pos=[0,0,0], href=null, iconBlue, iconRed, labelPng=null,
     scale=3, labelHeight=4, labelOffset=[0,2,0], noColorSwap=false
@@ -228,7 +228,7 @@
     controls.target.set(0,0,0);
     controls.update();
 
-    // ===== 青ピン（既存のまま） =====
+    // ===== 青ピン =====
     const pin1 = createPin({
       pos: [10, 10, -5],
       href: 'https://dazaifu.org/dazaifu-seicho-ato/',
@@ -236,7 +236,7 @@
       iconRed:  './pin1red.png',
       labelPng: './seicho.png',
       scale: 3,
-      labelHeight: 2,  // ←ラベルは高さ指定、幅は画像比で自動
+      labelHeight: 1,     // ★ ラベルの高さ（小さくしたいときはここを小さく）
       labelOffset: [0, 2, 0],
     });
     root.add(pin1); clickableObjects.push(pin1);
@@ -248,12 +248,12 @@
       iconRed:  './pin1red.png',
       labelPng: './seicho.png',
       scale: 3,
-      labelHeight: 2,
+      labelHeight: 1,     // ★ 同じくここ
       labelOffset: [0, 2, 0],
     });
     root.add(pin2); clickableObjects.push(pin2);
 
-    // ===== 緑ピン × 5（既存のまま／ラベル比率固定化） =====
+    // ===== 緑ピン × 5 =====
     [
       { pos:[  5, 11,  -8], label:'./muryou.png' },
       { pos:[ 18, 12, -12], label:'./tenku.png' },
@@ -261,14 +261,19 @@
       { pos:[ 30, 13,   6], label:'./yoshi.png' },
       { pos:[-22, 11,  -4], label:'./enmei.png' },
     ].forEach(({pos, label})=>{
-      const p = createGreenPin({ pos, labelPng: label, scale: 3, labelHeight: 2, labelOffset:[0,2,0] });
+      const p = createGreenPin({
+        pos,
+        labelPng: label,
+        scale: 3,
+        labelHeight: 1,   // ★ ここをまとめて小さくしてもOK
+        labelOffset:[0,2,0]
+      });
       root.add(p); clickableObjects.push(p);
     });
 
-    // ===== 直方体は廃止 → 疑似回転 赤ピン × 3 =====
-    // 直方体エリアで使っていた center をそのまま位置に採用
+    // ===== 疑似回転 赤ピン × 3 =====
     const SPIN_PINS = [
-      { pos:[ 20, 7, 35],  href:null, labelPng:null }, // 必要なら labelPng にファイル名
+      { pos:[ 20, 7, 35],  href:null, labelPng:null },
       { pos:[-16, 0,  1],  href:null, labelPng:null },
       { pos:[-27, 0, 22],  href:null, labelPng:null },
     ];
@@ -276,9 +281,9 @@
       const sp = createSpinningPin({
         pos, href,
         icon: './pinbrightred.png',
-        baseScale: 6,             // 既存ピン(3)の2倍
-        spinSpeed: 1.2,           // 回転スピード（遅め）
-        minFactor: 0.06,          // 0にしない＝クリック判定安定
+        baseScale: 6,
+        spinSpeed: 1.2,
+        minFactor: 0.06,
         labelPng,
         labelHeight: 2.6,
         labelOffset: [0, 3.2, 0],
@@ -288,7 +293,10 @@
       clickableSpinPins.push(sp);
     });
 
-  }, undefined, (err)=>{ console.error(err); alert('GLBの読み込みに失敗しました。パス/ファイル名をご確認ください。'); });
+  }, undefined, (err)=>{
+    console.error(err);
+    alert('GLBの読み込みに失敗しました。パス/ファイル名をご確認ください。');
+  });
 
   // ========================= GUI =========================
   const gui = new GUI({ title: 'Controls' });
@@ -308,7 +316,11 @@
     const elev = THREE.MathUtils.degToRad(params.sunElevDeg);
     const azi  = THREE.MathUtils.degToRad(params.sunAziDeg);
     const r = 100;
-    sun.position.set(r*Math.cos(elev)*Math.cos(azi), r*Math.sin(elev), r*Math.cos(elev)*Math.sin(azi));
+    sun.position.set(
+      r*Math.cos(elev)*Math.cos(azi),
+      r*Math.sin(elev),
+      r*Math.cos(elev)*Math.sin(azi)
+    );
   };
   upSun();
 
@@ -371,16 +383,18 @@
       hit = (obj.userData?.type) ? obj : (obj.parent?.userData?.type) ? obj.parent : obj;
     }
 
-    // ホバー切替（ピン：色/ラベル）
+    // ホバー切替（ピン：色だけ変える／ラベルは常時表示）
     if (hoverObject !== hit) {
       if (hoverObject && hoverObject.userData.type === 'pin') {
-        if (!hoverObject.userData.noColorSwap) { hoverObject.material = hoverObject.userData.mats.blue; }
-        if (hoverObject.userData.label) hoverObject.userData.label.visible = false;
+        if (!hoverObject.userData.noColorSwap) {
+          hoverObject.material = hoverObject.userData.mats.blue;
+        }
       }
       hoverObject = hit;
       if (hoverObject && hoverObject.userData.type === 'pin') {
-        if (!hoverObject.userData.noColorSwap) { hoverObject.material = hoverObject.userData.mats.red; }
-        if (hoverObject.userData.label) hoverObject.userData.label.visible = true;
+        if (!hoverObject.userData.noColorSwap) {
+          hoverObject.material = hoverObject.userData.mats.red;
+        }
       }
       renderer.domElement.style.cursor = hoverObject ? 'pointer' : 'default';
     }
@@ -431,3 +445,5 @@
 </script>
 </body>
 </html>
+
+
