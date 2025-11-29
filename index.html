@@ -201,13 +201,6 @@
     return sp;
   }
 
-  // 緑ピン（常時緑・リンクなし）
-  function createGreenPin({ pos=[0,0,0], labelPng, scale=3, labelHeight=4, labelOffset=[0,2,0] }){
-    return createPin({
-      pos, href:null, iconBlue:'./labelpin1green.png', iconRed:'./labelpin1green.png',
-      labelPng, scale, labelHeight, labelOffset, noColorSwap:true
-    });
-  }
 
   // ========================= モデル読込 =========================
   const clickableSpinPins = []; // 疑似回転対象だけ別管理
@@ -252,24 +245,6 @@
       labelOffset: [0, 2, 0],
     });
     root.add(pin2); clickableObjects.push(pin2);
-
-    // ===== 緑ピン × 5 =====
-    [
-      { pos:[  5, 11,  -8], label:'./muryou.png' },
-      { pos:[ 18, 12, -12], label:'./tenku.png' },
-      { pos:[-10, 10,  14], label:'./tyuson.png' },
-      { pos:[ 30, 13,   6], label:'./yoshi.png' },
-      { pos:[-22, 11,  -4], label:'./enmei.png' },
-    ].forEach(({pos, label})=>{
-      const p = createGreenPin({
-        pos,
-        labelPng: label,
-        scale: 3,
-        labelHeight: 1,   // ★ ここをまとめて小さくしてもOK
-        labelOffset:[0,2,0]
-      });
-      root.add(p); clickableObjects.push(p);
-    });
 
     // ===== 疑似回転 赤ピン × 3 =====
     const SPIN_PINS = [
@@ -445,6 +420,7 @@
 </script>
 </body>
 </html>
+
 
 
 
