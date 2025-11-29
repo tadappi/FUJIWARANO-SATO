@@ -12,7 +12,60 @@
       position:fixed;left:10px;bottom:10px;color:#cfd8dc;
       font:12px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
       opacity:.85;user-select:none;background:rgba(0,0,0,.35);
-      padding:6px 8px;border-radius:6px
+      padding:6px 8px;border-radius:6px;
+      z-index: 5;
+    }
+
+    /* ===== オーバーレイ小ウィンドウ ===== */
+    #overlay {
+      position: fixed;
+      right: 16px;
+      bottom: 16px;
+      width: min(480px, 42vw);
+      height: min(270px, 32vh);
+      background: #111;
+      border-radius: 10px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+      overflow: hidden;
+      display: none;
+      z-index: 10; /* GUIより前に出す */
+    }
+    #overlay.visible {
+      display: block;
+    }
+    #overlay-header {
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 8px;
+      background: rgba(20,20,20,0.95);
+      color: #eee;
+      font: 12px/1 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+      cursor: move; /* 将来ドラッグ対応したくなったとき用の見た目 */
+    }
+    #overlay-title {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: calc(100% - 40px);
+    }
+    #overlay-close {
+      border: none;
+      background: transparent;
+      color: #ccc;
+      cursor: pointer;
+      font-size: 14px;
+      padding: 0 4px;
+    }
+    #overlay-close:hover {
+      color: #fff;
+    }
+    #overlay-iframe {
+      width: 100%;
+      height: calc(100% - 28px);
+      border: none;
+      background: #000;
     }
   </style>
 
@@ -24,7 +77,19 @@
 </head>
 <body>
 <div id="app"></div>
-<div class="hint">左:回転 中:パン ホイール:ズーム｜ピン/エリアはホバーで反応・クリックでリンク（寄ってから即切替）</div>
+<div class="hint">
+  左:回転 中:パン ホイール:ズーム｜
+  ピン/エリアはホバーで反応・クリックでリンク（寄ってから小ウィンドウ表示）
+</div>
+
+<!-- 小さめタブ（オーバーレイ） -->
+<div id="overlay">
+  <div id="overlay-header">
+    <div id="overlay-title">Loading…</div>
+    <button id="overlay-close" aria-label="Close">✕</button>
+  </div>
+  <iframe id="overlay-iframe" src="about:blank" allowfullscreen></iframe>
+</div>
 
 <script type="module">
   import * as THREE from 'three';
@@ -80,6 +145,52 @@
 
   const axes = new THREE.AxesHelper(100);
   scene.add(axes);
+
+  // ========================= オーバーレイ要素 =========================
+  const overlay       = document.getElementById('overlay');
+  const overlayTitle  = document.getElementById('overlay-title');
+  const overlayFrame  = document.getElementById('overlay-iframe');
+  const overlayClose  = document.getElementById('overlay-close');
+
+  let overlayPrevAutoRotate = controls.autoRotate;
+
+  function toEmbedUrl(rawHref){
+    // YouTube のショートURL / 通常URL を埋め込みURLに変換
+    try{
+      const u = new URL(rawHref);
+      const host = u.hostname;
+      if (host.includes('youtu.be')) {
+        const id = u.pathname.replace('/', '');
+        if (id) return `https://www.youtube.com/embed/${id}?autoplay=1`;
+      }
+      if (host.includes('youtube.com') && u.searchParams.get('v')) {
+        const id = u.searchParams.get('v');
+        return `https://www.youtube.com/embed/${id}?autoplay=1`;
+      }
+    }catch(e){
+      // URL としてパースできなければそのまま返す
+    }
+    return rawHref;
+  }
+
+  function openOverlay(href){
+    if (!href) return;
+    overlayPrevAutoRotate = controls.autoRotate;
+    controls.autoRotate = false;
+
+    const displayTitle = href.length > 60 ? href.slice(0, 57) + '…' : href;
+    overlayTitle.textContent = displayTitle;
+
+    const url = toEmbedUrl(href);
+    overlayFrame.src = url;
+    overlay.classList.add('visible');
+  }
+
+  overlayClose.addEventListener('click', ()=>{
+    overlay.classList.remove('visible');
+    overlayFrame.src = 'about:blank';
+    controls.autoRotate = overlayPrevAutoRotate;
+  });
 
   // ========================= Raycaster & 状態 =========================
   const raycaster = new THREE.Raycaster();
@@ -143,16 +254,15 @@
     if (!texLabel) return null;
     const matLabel = new THREE.SpriteMaterial({ map: texLabel, transparent: true, depthTest: true });
     const label = new THREE.Sprite(matLabel);
-    // 高さを基準に幅を決める（画像比を厳守）
     label.scale.set(heightWorld, heightWorld, 1); // 仮
     label.position.set(...offset);
-    label.visible = true;                  // ★ 最初から表示する
+    label.visible = true;
     label.userData = { fitByImage: true, targetH: heightWorld };
     parent.add(label);
     return label;
   }
 
-  // 共通ピン（ホバーで色変化、ラベルは常時表示）
+  // 共通ピン
   function createPin({
     pos=[0,0,0], href=null, iconBlue, iconRed, labelPng=null,
     scale=3, labelHeight=4, labelOffset=[0,2,0], noColorSwap=false
@@ -177,7 +287,7 @@
     return pin;
   }
 
-  // 疑似回転ピン（scale.x を周期変化）
+  // 疑似回転ピン
   function createSpinningPin({
     pos=[0,0,0], href=null, icon='./pinbrightred.png',
     baseScale=6, spinSpeed=1.2, minFactor=0.06, labelPng=null, labelHeight=5, labelOffset=[0,3.2,0]
@@ -186,7 +296,7 @@
     const mat = new THREE.SpriteMaterial({ map: tex, transparent:true });
     const sp = new THREE.Sprite(mat);
     sp.position.set(...pos);
-    sp.scale.set(baseScale, baseScale, 1);     // 基本は等倍（幅だけ後で潰す）
+    sp.scale.set(baseScale, baseScale, 1);
     sp.renderOrder = 11;
     sp.userData = {
       type:'pin', href,
@@ -201,9 +311,8 @@
     return sp;
   }
 
-
   // ========================= モデル読込 =========================
-  const clickableSpinPins = []; // 疑似回転対象だけ別管理
+  const clickableSpinPins = [];
   const gltfLoader = new GLTFLoader();
   gltfLoader.load('./100.glb', (gltf) => {
     root = gltf.scene;
@@ -229,7 +338,7 @@
       iconRed:  './pin1red.png',
       labelPng: './event area.png',
       scale: 3,
-      labelHeight: 1,     // ★ ラベルの高さ（小さくしたいときはここを小さく）
+      labelHeight: 1,
       labelOffset: [0, 2, 0],
     });
     root.add(pin1); clickableObjects.push(pin1);
@@ -241,7 +350,7 @@
       iconRed:  './pin1red.png',
       labelPng: './seicho.png',
       scale: 3,
-      labelHeight: 1,     // ★ 同じくここ
+      labelHeight: 1,
       labelOffset: [0, 2, 0],
     });
     root.add(pin2); clickableObjects.push(pin2);
@@ -311,11 +420,13 @@
   fM.add(params, 'rotateY', -180, 180, 1).name('Rotate Y [deg]');
   fM.add(params, 'rotateZ', -180, 180, 1).name('Rotate Z [deg]');
   const fV = gui.addFolder('View');
-  fV.add(params, 'autoRotate').name('Auto rotate').onChange(v=> controls.autoRotate = v);
+  fV.add(params, 'autoRotate').name('Auto rotate').onChange(v=> {
+    controls.autoRotate = v;
+  });
   fV.add(params, 'rotateSpeed', -3, 3, 0.1).name('Rotate speed').onChange(v=> controls.autoRotateSpeed = v);
   gui.add(params, 'showAxes').name('Show axes').onChange(v=> axes.visible = v);
 
-  // ========================= クリック（寄ってから即遷移） =========================
+  // ========================= クリック（寄ってから小ウィンドウ表示） =========================
   const _p = new THREE.Vector3(), _box = new THREE.Box3(), _size = new THREE.Vector3();
   renderer.domElement.addEventListener('click', ()=>{
     if (!hoverObject || _flying) return;
@@ -339,7 +450,10 @@
     const lookAt  = (ud.lookAt instanceof THREE.Vector3) ? ud.lookAt.clone() : p.clone();
     const duration = (typeof ud.flyMs === 'number') ? ud.flyMs : 1500;
 
-    flyTo(camera, controls, destPos, lookAt, duration, ()=>{ window.location.href = href; });
+    flyTo(camera, controls, destPos, lookAt, duration, ()=>{
+      // ★ ここをページ遷移ではなくオーバーレイ表示に変更
+      openOverlay(href);
+    });
   });
 
   // ========================= ループ =========================
@@ -358,7 +472,7 @@
       hit = (obj.userData?.type) ? obj : (obj.parent?.userData?.type) ? obj.parent : obj;
     }
 
-    // ホバー切替（ピン：色だけ変える／ラベルは常時表示）
+    // ホバー切替
     if (hoverObject !== hit) {
       if (hoverObject && hoverObject.userData.type === 'pin') {
         if (!hoverObject.userData.noColorSwap) {
@@ -374,7 +488,7 @@
       renderer.domElement.style.cursor = hoverObject ? 'pointer' : 'default';
     }
 
-    // ラベルの比率フィット（画像ロード完了後に一度だけ）
+    // ラベルの比率フィット
     clickableObjects.forEach(obj=>{
       const lbl = obj.userData?.label;
       if (!lbl || !lbl.userData?.fitByImage) return;
@@ -383,16 +497,16 @@
         const h = lbl.userData.targetH;
         const w = h * (img.width / img.height);
         lbl.scale.set(w, h, 1);
-        lbl.userData.fitByImage = false; // 一度だけ
+        lbl.userData.fitByImage = false;
       }
     });
 
-    // 疑似回転アニメ（幅スケール：base * (min + (1-min)*|cos|)）
+    // 疑似回転アニメ
     clickableSpinPins.forEach(sp=>{
       const conf = sp.userData.spin;
       const factor = conf.min + (1-conf.min) * Math.abs(Math.cos(t * conf.speed + conf.phase));
       sp.scale.x = conf.base * factor;
-      sp.scale.y = conf.base; // 高さは一定
+      sp.scale.y = conf.base;
     });
 
     // モデル回転
@@ -420,8 +534,3 @@
 </script>
 </body>
 </html>
-
-
-
-
-
