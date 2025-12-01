@@ -79,7 +79,7 @@
 <div id="app"></div>
 <div class="hint">
   左:回転 中:パン ホイール:ズーム｜
-  ピン/エリアはホバーで反応・クリックでリンク（寄ってから小ウィンドウ表示）
+  ピン/エリアはホバーで反応・クリックでリンク（寄ってから小ウィンドウ表示＆そっと軌道に復帰）
 </div>
 
 <!-- 小さめタブ（オーバーレイ） -->
@@ -120,6 +120,30 @@
   controls.autoRotate = true;
   controls.autoRotateSpeed = 0.5;
   controls.target.set(0, 0, 0);
+
+  // 「軌道」用の基準ビュー（オートローテで回っている円周上の1点）
+  const baseOrbitPos = new THREE.Vector3();
+  const baseOrbitTarget = new THREE.Vector3();
+  let hasBaseOrbit = false;
+
+  // ピンクリック直前の「その時点の軌道上の位置」
+  const orbitPosBeforeFly = new THREE.Vector3();
+  const orbitTargetBeforeFly = new THREE.Vector3();
+  let hasOrbitBeforeFly = false;
+
+  // 無操作10秒で軌道に戻るためのタイマー
+  const IDLE_TIMEOUT_MS = 10000;
+  let lastUserInputTime = performance.now();
+  let idleReturnArmed = false;
+
+  function markUserInteraction(){
+    lastUserInputTime = performance.now();
+    idleReturnArmed = true;
+  }
+
+  // OrbitControlsの操作開始/終了でも「操作あり」とみなす
+  controls.addEventListener('start', markUserInteraction);
+  controls.addEventListener('end', markUserInteraction);
 
   // ライティング
   const ambient = new THREE.AmbientLight(0xffffff, 1.0);
@@ -175,6 +199,7 @@
 
   function openOverlay(href){
     if (!href) return;
+    markUserInteraction();
     overlayPrevAutoRotate = controls.autoRotate;
     controls.autoRotate = false;
 
@@ -187,9 +212,44 @@
   }
 
   overlayClose.addEventListener('click', ()=>{
+    markUserInteraction();
     overlay.classList.remove('visible');
     overlayFrame.src = 'about:blank';
-    controls.autoRotate = overlayPrevAutoRotate;
+
+    // ピンクリック直前の軌道位置があればそこへ、それが無ければ基準軌道へ戻る
+    let destPos = null;
+    let destTarget = null;
+    if (hasOrbitBeforeFly) {
+      destPos = orbitPosBeforeFly.clone();
+      destTarget = orbitTargetBeforeFly.clone();
+    } else if (hasBaseOrbit) {
+      destPos = baseOrbitPos.clone();
+      destTarget = baseOrbitTarget.clone();
+    }
+
+    hasOrbitBeforeFly = false;
+
+    if (destPos && destTarget) {
+      flyTo(
+        camera,
+        controls,
+        destPos,
+        destTarget,
+        1800,
+        ()=>{
+          if (overlayPrevAutoRotate){
+            controls.autoRotate = true;
+            params.autoRotate = true;
+          }
+        }
+      );
+    } else {
+      // 保険：何も保存されていない場合
+      if (overlayPrevAutoRotate){
+        controls.autoRotate = true;
+        params.autoRotate = true;
+      }
+    }
   });
 
   // ========================= Raycaster & 状態 =========================
@@ -201,6 +261,11 @@
     mouseNDC.x = ((e.clientX - r.left) / r.width) * 2 - 1;
     mouseNDC.y = -((e.clientY - r.top) / r.height) * 2 + 1;
   });
+
+  // カメラ操作系のユーザー入力
+  renderer.domElement.addEventListener('pointerdown', markUserInteraction);
+  renderer.domElement.addEventListener('wheel', markUserInteraction);
+  window.addEventListener('keydown', markUserInteraction);
 
   let root = null;
   const clickableObjects = []; // ピン（リンクあり/なし）
@@ -330,6 +395,11 @@
     controls.target.set(0,0,0);
     controls.update();
 
+    // この時のビューを「軌道の基準位置」として保存
+    baseOrbitPos.copy(camera.position);
+    baseOrbitTarget.copy(controls.target);
+    hasBaseOrbit = true;
+
     // ===== 青ピン =====
     const pin1 = createPin({
       pos: [10, 10, -5],
@@ -426,13 +496,29 @@
   fV.add(params, 'rotateSpeed', -3, 3, 0.1).name('Rotate speed').onChange(v=> controls.autoRotateSpeed = v);
   gui.add(params, 'showAxes').name('Show axes').onChange(v=> axes.visible = v);
 
-  // ========================= クリック（寄ってから小ウィンドウ表示） =========================
+  // ========================= クリック（寄ってから小ウィンドウ＆軌道復帰用の軌道保存） =========================
   const _p = new THREE.Vector3(), _box = new THREE.Box3(), _size = new THREE.Vector3();
   renderer.domElement.addEventListener('click', ()=>{
     if (!hoverObject || _flying) return;
     const ud = hoverObject.userData || {};
     const href = ud.href;
     if (!href) return;
+
+    // この時点の「軌道上の位置」を記録（autoRotate中ならそのまま、そうでなければ基準軌道）
+    if (hasBaseOrbit) {
+      if (controls.autoRotate) {
+        orbitPosBeforeFly.copy(camera.position);
+        orbitTargetBeforeFly.copy(controls.target);
+      } else {
+        orbitPosBeforeFly.copy(baseOrbitPos);
+        orbitTargetBeforeFly.copy(baseOrbitTarget);
+      }
+      hasOrbitBeforeFly = true;
+    } else {
+      hasOrbitBeforeFly = false;
+    }
+
+    markUserInteraction();
 
     hoverObject.getWorldPosition(_p);
     const p = _p.clone();
@@ -451,7 +537,6 @@
     const duration = (typeof ud.flyMs === 'number') ? ud.flyMs : 1500;
 
     flyTo(camera, controls, destPos, lookAt, duration, ()=>{
-      // ★ ここをページ遷移ではなくオーバーレイ表示に変更
       openOverlay(href);
     });
   });
@@ -516,6 +601,26 @@
         THREE.MathUtils.degToRad(params.rotateY),
         THREE.MathUtils.degToRad(params.rotateZ)
       );
+    }
+
+    // 無操作10秒で軌道に戻す（Auto rotateがONのときだけ）
+    const nowMs = performance.now();
+    const overlayVisible = overlay.classList.contains('visible');
+    if (idleReturnArmed && !overlayVisible && !_flying && hasBaseOrbit && params.autoRotate){
+      if (nowMs - lastUserInputTime > IDLE_TIMEOUT_MS){
+        idleReturnArmed = false;
+        flyTo(
+          camera,
+          controls,
+          baseOrbitPos.clone(),
+          baseOrbitTarget.clone(),
+          2000,
+          ()=>{
+            controls.autoRotate = true;
+            params.autoRotate = true;
+          }
+        );
+      }
     }
 
     controls.update();
