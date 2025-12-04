@@ -426,12 +426,26 @@
     });
     root.add(pin2); clickableObjects.push(pin2);
 
+    
     // ===== 疑似回転 赤ピン × 3 =====
-    const SPIN_PINS = [
-      { pos:[ 20, 7, 35],  href:null, labelPng:null },
-      { pos:[-16, 0,  1],  href:null, labelPng:null },
-      { pos:[-27, 0, 22],  href:null, labelPng:null },
-    ];
+const SPIN_PINS = [
+  { 
+    pos:[ 20, 7, 35],
+    href:'./eventarea.mp4',          // ローカルmp4（青ピン1と同じとか）
+    labelPng:'./event area.png'
+  },
+  { 
+    pos:[-16, 0,  1],
+    href:'https://youtu.be/JChgvIqC4k4',  // YouTube（オーバーレイで埋め込み再生）
+    labelPng:'./seicho.png'
+  },
+  { 
+    pos:[-27, 0, 22],
+    href:'https://dazaifu.org/dazaifu-seicho-ato/', // 通常Webページ
+    labelPng:null
+  },
+];
+
     SPIN_PINS.forEach(({pos, href, labelPng})=>{
       const sp = createSpinningPin({
         pos, href,
@@ -640,6 +654,7 @@
 </script>
 </body>
 </html>
+
 
 
 
