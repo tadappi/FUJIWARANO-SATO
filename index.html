@@ -356,7 +356,7 @@
   // 疑似回転ピン
   function createSpinningPin({
     pos=[0,0,0], href=null, icon='./pinbrightred.png',
-    baseScale=6, spinSpeed=1.2, minFactor=0.06, labelPng=null, labelHeight=5, labelOffset=[0,3.2,0]
+    baseScale=6, spinSpeed=0.8, minFactor=0.06, labelPng=null, labelHeight=5, labelOffset=[0,3.2,0]
   }){
     const tex = loadTex(icon);
     const mat = new THREE.SpriteMaterial({ map: tex, transparent:true });
@@ -654,6 +654,7 @@ const SPIN_PINS = [
 </script>
 </body>
 </html>
+
 
 
 
