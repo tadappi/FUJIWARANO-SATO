@@ -78,19 +78,8 @@
 </head>
 <body>
 <div id="app"></div>
-<div class="hint">
-  左:回転 中:パン ホイール:ズーム｜
-  ピン/エリアはホバーで反応・クリックでリンク（寄ってから小ウィンドウ表示＆そっと軌道に復帰）
-</div>
 
-<!-- 小さめタブ（オーバーレイ） -->
-<div id="overlay">
-  <div id="overlay-header">
-    <div id="overlay-title">Loading…</div>
-    <button id="overlay-close" aria-label="Close">✕</button>
-  </div>
-  <iframe id="overlay-iframe" src="about:blank" allowfullscreen></iframe>
-</div>
+  
 
 <script type="module">
   import * as THREE from 'three';
@@ -753,6 +742,7 @@ const SPIN_PINS = [
 </script>
 </body>
 </html>
+
 
 
 
