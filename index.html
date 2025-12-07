@@ -637,12 +637,50 @@ const SPIN_PINS = [
 
   // ========================= クリック（寄ってから小ウィンドウ＆軌道復帰用の軌道保存） =========================
   const _p = new THREE.Vector3(), _box = new THREE.Box3(), _size = new THREE.Vector3();
-  renderer.domElement.addEventListener('click', ()=>{
-    if (!hoverObject || _flying) return;
+  
+    renderer.domElement.addEventListener('click', (e)=>{
+    if (_flying) return;
+
+    // クリック（タップ）位置からレイを飛ばす
+    const r = renderer.domElement.getBoundingClientRect();
+    const x = ((e.clientX - r.left) / r.width) * 2 - 1;
+    const y = -((e.clientY - r.top) / r.height) * 2 + 1;
+
+    raycaster.setFromCamera({ x, y }, camera);
+    const hits = raycaster.intersectObjects(clickableObjects, true);
+    if (!hits.length) return;
+
+    // 当たったオブジェクトから「ピン本体」を取得
+    let obj  = hits[0].object;
+    let hit  = (obj.userData?.type)
+      ? obj
+      : (obj.parent?.userData?.type)
+        ? obj.parent
+        : obj;
+
+    // hover 状態も同期（色など）
+    if (hoverObject && hoverObject.userData.type === 'pin') {
+      if (!hoverObject.userData.noColorSwap) {
+        hoverObject.material = hoverObject.userData.mats.blue;
+      }
+    }
+    hoverObject = hit;
+    if (hoverObject && hoverObject.userData.type === 'pin') {
+      if (!hoverObject.userData.noColorSwap) {
+        hoverObject.material = hoverObject.userData.mats.red;
+      }
+    }
+
     const ud = hoverObject.userData || {};
     const href = ud.href;
     if (!href) return;
 
+    // ここから下は、元のコードそのまま続けてOK
+    // （軌道位置を保存して寄りカメラ → 小ウィンドウ → 軌道復帰、の処理）
+
+  
+
+    
     // この時点の「軌道上の位置」を記録（autoRotate中ならそのまま、そうでなければ基準軌道）
     if (hasBaseOrbit) {
       if (controls.autoRotate) {
@@ -778,6 +816,7 @@ const SPIN_PINS = [
 </script>
 </body>
 </html>
+
 
 
 
