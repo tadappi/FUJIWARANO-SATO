@@ -780,17 +780,43 @@ const SPIN_PINS = [
       );
     }
 
-    // 無操作10秒で軌道に戻す（Auto rotateがONのときだけ）
+    // 無操作10秒で「距離＆高さは基準、方位は今のまま」でオートローテ再開
     const nowMs = performance.now();
     const overlayVisible = overlay.classList.contains('visible');
     if (idleReturnArmed && !overlayVisible && !_flying && hasBaseOrbit && params.autoRotate){
       if (nowMs - lastUserInputTime > IDLE_TIMEOUT_MS){
         idleReturnArmed = false;
+
+        // 基準の軌道中心
+        const baseCenter = baseOrbitTarget.clone(); // 普通は (0,0,0) :contentReference[oaicite:1]{index=1}
+        // 基準軌道のベクトル（中心→カメラ）
+        const baseVec    = baseOrbitPos.clone().sub(baseCenter);
+        const baseRadius = baseVec.length();
+        const baseY      = baseOrbitPos.y - baseCenter.y;
+
+        // 今のカメラの「方位」（Y軸周り）だけ取り出す
+        const curVec = camera.position.clone().sub(baseCenter);
+        const yaw    = Math.atan2(curVec.z, curVec.x);  // 東西南北
+
+        // 基準の距離＆高さから水平方向の半径を計算
+        const horizRadius = Math.max(
+          1e-3,
+          Math.sqrt(Math.max(0, baseRadius * baseRadius - baseY * baseY))
+        );
+
+        // 方位は今のまま、距離＆高さは基準に合わせた位置
+        const destPos = new THREE.Vector3(
+          baseCenter.x + horizRadius * Math.cos(yaw),
+          baseCenter.y + baseY,
+          baseCenter.z + horizRadius * Math.sin(yaw)
+        );
+        const destTarget = baseCenter;
+
         flyTo(
           camera,
           controls,
-          baseOrbitPos.clone(),
-          baseOrbitTarget.clone(),
+          destPos,
+          destTarget,
           2000,
           ()=>{
             controls.autoRotate = true;
@@ -799,7 +825,7 @@ const SPIN_PINS = [
         );
       }
     }
-
+    
     controls.update();
     renderer.render(scene, camera);
     requestAnimationFrame(tick);
@@ -816,6 +842,7 @@ const SPIN_PINS = [
 </script>
 </body>
 </html>
+
 
 
 
