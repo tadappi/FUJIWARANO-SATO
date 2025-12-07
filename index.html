@@ -167,7 +167,8 @@
 
   const axes = new THREE.AxesHelper(100);
   scene.add(axes);
-
+  axes.visible = false; 
+  
   // ========================= オーバーレイ要素 =========================
   const overlay       = document.getElementById('overlay');
   const overlayTitle  = document.getElementById('overlay-title');
@@ -777,6 +778,7 @@ const SPIN_PINS = [
 </script>
 </body>
 </html>
+
 
 
 
