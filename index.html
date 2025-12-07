@@ -599,7 +599,7 @@ const SPIN_PINS = [
     autoRotate: controls.autoRotate,
     rotateSpeed: controls.autoRotateSpeed,
     showGroundShadow: ground.visible,
-    showAxes: true,
+    showAxes: fales,
     rotateX: 0, rotateY: 0, rotateZ: 0
   };
   const upSun = ()=>{
@@ -631,6 +631,8 @@ const SPIN_PINS = [
   });
   fV.add(params, 'rotateSpeed', -3, 3, 0.1).name('Rotate speed').onChange(v=> controls.autoRotateSpeed = v);
   gui.add(params, 'showAxes').name('Show axes').onChange(v=> axes.visible = v);
+　gui.close();
+  
 
   // ========================= クリック（寄ってから小ウィンドウ＆軌道復帰用の軌道保存） =========================
   const _p = new THREE.Vector3(), _box = new THREE.Box3(), _size = new THREE.Vector3();
@@ -775,6 +777,7 @@ const SPIN_PINS = [
 </script>
 </body>
 </html>
+
 
 
 
