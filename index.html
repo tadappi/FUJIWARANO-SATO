@@ -86,6 +86,43 @@
     }
 
     
+  
+
+    /* ===== 左上ガイドボタン ===== */
+    #guide-buttons{
+      position: fixed;
+      top: 74px;         /* 上のタイトルに少し被らないように */
+      left: 10px;
+      z-index: 6;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      pointer-events: auto;
+    }
+    .guide-btn{
+      width: 150px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.25);
+      background: rgba(20,20,20,0.55);
+      color: #fff;
+      font-size: 14px;
+      letter-spacing: 0.02em;
+      cursor: pointer;
+      user-select: none;
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+    }
+    .guide-btn:hover{ background: rgba(20,20,20,0.68); }
+    .guide-btn:active{ transform: translateY(1px); }
+    .guide-btn:disabled{
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+    .guide-btn-sub{
+      background: rgba(120,120,120,0.28);
+    }
+
   </style>
 
   <script type="importmap">
@@ -96,6 +133,14 @@
 </head>
 <body>
 <div id="app"></div>
+
+<div id="guide-buttons">
+  <button id="btn-area"    class="guide-btn">エリア案内</button>
+  <button id="btn-reco"    class="guide-btn">おすすめ案内</button>
+  <button id="btn-other"   class="guide-btn">その他案内</button>
+  <button id="btn-collect" class="guide-btn guide-btn-sub">回収</button>
+</div>
+
 
 <div id="top-title">
   <img src="./title.png" alt="藤原の里 3D ビューア">
@@ -396,6 +441,236 @@
     return sp;
   }
 
+  
+
+  // ===================== ピン落下 & ガイドボタン =====================
+  // ※ 落下音：この .wav をレポジトリに置いてください（ファイル名を変えるならここだけ変更）
+  const SOUND_FILE = './pin_drop.wav';
+  const SOUND_VOLUME = 0.85;
+
+  function playDropSound(){
+    try{
+      const a = new Audio(SOUND_FILE);
+      a.volume = SOUND_VOLUME;
+      a.play().catch(()=>{});
+    }catch(e){}
+  }
+
+  // ピン管理（GLBロード後に埋まる）
+  const bluePins = {};     // {1: pin1, ...}
+  const spinPins = [];     // 疑似回転 赤ピン
+  const allPins  = [];     // 全ピン（回収用）
+
+  let groupArea  = [];
+  let groupReco  = [];
+  let groupOther = [];
+  let pinsReady  = false;
+
+  // ボタン
+  const btnArea    = document.getElementById('btn-area');
+  const btnReco    = document.getElementById('btn-reco');
+  const btnOther   = document.getElementById('btn-other');
+  const btnCollect = document.getElementById('btn-collect');
+
+  function setButtonsEnabled(en){
+    [btnArea, btnReco, btnOther, btnCollect].forEach(b=>{
+      if (!b) return;
+      b.disabled = !en;
+    });
+  }
+  setButtonsEnabled(false);
+
+  // 落下/回収の見た目パラメータ
+  const DROP_FRONT_OFFSET    = 35;  // 「手前」側へ引っ張る距離（カメラ方向）
+  const DROP_HEIGHT          = 28;  // 落下開始の高さ
+  const DROP_DURATION_MS     = 780;
+  const DROP_STAGGER_MS      = 140;
+
+  const COLLECT_FRONT_OFFSET = 18;
+  const COLLECT_HEIGHT       = 30;
+  const COLLECT_DURATION_MS  = 520;
+
+  // かんたんTween
+  const pinTweens = [];
+  let pendingSelectTimer = null;
+
+  function easeOutCubic(t){ return 1 - Math.pow(1 - t, 3); }
+  function easeOutBack(t){
+    const c1 = 1.70158;
+    const c3 = c1 + 1;
+    return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
+  }
+
+  function killTweensFor(obj){
+    for (let i = pinTweens.length - 1; i >= 0; i--){
+      if (pinTweens[i].obj === obj) pinTweens.splice(i, 1);
+    }
+  }
+
+  function addPosTween(obj, from, to, durationMs, delayMs=0, onDone=null, onStart=null, easeFn=easeOutBack){
+    pinTweens.push({
+      obj,
+      from: from.clone(),
+      to:   to.clone(),
+      start: performance.now() + delayMs,
+      duration: Math.max(1, durationMs),
+      onDone,
+      onStart,
+      ease: easeFn || ((x)=>x),
+      started: false
+    });
+  }
+
+  function updatePinTweens(nowMs){
+    for (let i = pinTweens.length - 1; i >= 0; i--){
+      const tw = pinTweens[i];
+      if (nowMs < tw.start) continue;
+
+      if (!tw.started){
+        tw.started = true;
+        if (tw.onStart) tw.onStart();
+      }
+
+      const t = Math.min(1, (nowMs - tw.start) / tw.duration);
+      const k = tw.ease(t);
+      tw.obj.position.lerpVectors(tw.from, tw.to, k);
+
+      if (t >= 1){
+        if (tw.onDone) tw.onDone();
+        pinTweens.splice(i, 1);
+      }
+    }
+  }
+
+  function homeWorldPos(obj){
+    // homePos は「最終的に収まる」ローカル座標
+    const p = (obj.userData?.homePos instanceof THREE.Vector3)
+      ? obj.userData.homePos.clone()
+      : obj.position.clone();
+    if (obj.parent) obj.parent.localToWorld(p);
+    return p;
+  }
+
+  function computeFrontStartLocal(obj, frontOffset, heightUp){
+    const camW = camera.getWorldPosition(new THREE.Vector3());
+    const targetW = homeWorldPos(obj);
+    const dir = camW.clone().sub(targetW).normalize();  // ターゲット→カメラ
+    const startW = targetW.clone().add(dir.multiplyScalar(frontOffset));
+    startW.y += heightUp;
+
+    const startL = startW.clone();
+    if (obj.parent) obj.parent.worldToLocal(startL);
+    return startL;
+  }
+
+  function registerPinBase(obj){
+    if (!obj.userData) obj.userData = {};
+    if (!(obj.userData.homePos instanceof THREE.Vector3)){
+      obj.userData.homePos = obj.position.clone();
+    }
+    allPins.push(obj);
+  }
+  function registerBluePin(id, obj){
+    registerPinBase(obj);
+    bluePins[id] = obj;
+  }
+  function registerSpinPin(obj){
+    registerPinBase(obj);
+    spinPins.push(obj);
+  }
+
+  function collectPins(list, {immediate=false}={}){
+    list.filter(Boolean).forEach(obj=>{
+      killTweensFor(obj);
+
+      const endL = computeFrontStartLocal(obj, COLLECT_FRONT_OFFSET, COLLECT_HEIGHT);
+
+      if (immediate){
+        obj.position.copy(endL);
+        obj.visible = false;
+        return;
+      }
+
+      if (!obj.visible){
+        // 見えてない時は「回収位置」だけ更新しておく（チラつき防止）
+        obj.position.copy(endL);
+        return;
+      }
+
+      const fromL = obj.position.clone();
+      addPosTween(obj, fromL, endL, COLLECT_DURATION_MS, 0, ()=>{
+        obj.visible = false;
+      }, null, easeOutCubic);
+    });
+  }
+
+  function dropPins(list, {silent=false}={}){
+    const camW = camera.getWorldPosition(new THREE.Vector3());
+
+    // 手前→奥の順（カメラ距離が近いものから）
+    const sorted = list
+      .filter(Boolean)
+      .map(obj=>{
+        const w = homeWorldPos(obj);
+        return { obj, dist: camW.distanceTo(w) };
+      })
+      .sort((a,b)=>a.dist - b.dist)
+      .map(v=>v.obj);
+
+    sorted.forEach((obj, idx)=>{
+      killTweensFor(obj);
+      obj.visible = true;
+
+      const startL = computeFrontStartLocal(obj, DROP_FRONT_OFFSET, DROP_HEIGHT);
+      obj.position.copy(startL);
+
+      addPosTween(
+        obj,
+        startL,
+        obj.userData.homePos,
+        DROP_DURATION_MS,
+        idx * DROP_STAGGER_MS,
+        null,
+        ()=>{
+          if (!silent) playDropSound();
+        },
+        easeOutBack
+      );
+    });
+  }
+
+  function selectGroup(targetList){
+    if (!pinsReady) return;
+    markUserInteraction();
+
+    if (pendingSelectTimer){
+      clearTimeout(pendingSelectTimer);
+      pendingSelectTimer = null;
+    }
+
+    // いったん全部回収 → その後、指定グループを落下
+    collectPins(allPins, {immediate:false});
+    pendingSelectTimer = setTimeout(()=>{
+      dropPins(targetList, {silent:false});
+    }, COLLECT_DURATION_MS + 90);
+  }
+
+  function collectAll(){
+    if (!pinsReady) return;
+    markUserInteraction();
+    if (pendingSelectTimer){
+      clearTimeout(pendingSelectTimer);
+      pendingSelectTimer = null;
+    }
+    collectPins(allPins, {immediate:false});
+  }
+
+  btnArea?.addEventListener('click',  ()=> selectGroup(groupArea));
+  btnReco?.addEventListener('click',  ()=> selectGroup(groupReco));
+  btnOther?.addEventListener('click', ()=> selectGroup(groupOther));
+  btnCollect?.addEventListener('click', ()=> collectAll());
+
+
   // ========================= モデル読込 =========================
   const clickableSpinPins = [];
   const gltfLoader = new GLTFLoader();
@@ -431,7 +706,7 @@
       labelHeight: 0.7,
       labelOffset: [0, 1.0, 0],
     });
-    root.add(pin1); clickableObjects.push(pin1);
+    root.add(pin1); clickableObjects.push(pin1); registerBluePin(1, pin1);
 
     const pin2 = createPin({           //金色堂
       pos: [-37, 15, 41],
@@ -443,7 +718,7 @@
       labelHeight: 0.7,
       labelOffset: [0, 1.0, 0],
     });
-    root.add(pin2); clickableObjects.push(pin2);
+    root.add(pin2); clickableObjects.push(pin2); registerBluePin(2, pin2);
 
     const pin3 = createPin({           //無量光院
       pos: [-37, 3, 20],
@@ -455,7 +730,7 @@
       labelHeight: 0.7,
       labelOffset: [0, 1.0, 0],
     });
-    root.add(pin3); clickableObjects.push(pin3);
+    root.add(pin3); clickableObjects.push(pin3); registerBluePin(3, pin3);
 
 const pin4 = createPin({           //義経持仏堂
       pos: [0, 10, 22],
@@ -467,7 +742,7 @@ const pin4 = createPin({           //義経持仏堂
       labelHeight: 0.7,
       labelOffset: [0, 1.0, 0],
     });
-    root.add(pin4); clickableObjects.push(pin4);
+    root.add(pin4); clickableObjects.push(pin4); registerBluePin(4, pin4);
 
 const pin5 = createPin({           //政庁南（天球）
       pos: [-17, 3, 7],
@@ -479,7 +754,7 @@ const pin5 = createPin({           //政庁南（天球）
       labelHeight: 0.7,
       labelOffset: [0, 1.0, 0],
     });
-    root.add(pin5); clickableObjects.push(pin5);
+    root.add(pin5); clickableObjects.push(pin5); registerBluePin(5, pin5);
 
 const pin6 = createPin({           //町並み（天球）
       pos: [-30, 3, 5],
@@ -491,7 +766,7 @@ const pin6 = createPin({           //町並み（天球）
       labelHeight: 0.7,
       labelOffset: [0, 1.0, 0],
     });
-    root.add(pin6); clickableObjects.push(pin6);
+    root.add(pin6); clickableObjects.push(pin6); registerBluePin(6, pin6);
 
 const pin7 = createPin({           //城柵ゾーン（天球）
       pos: [-14, 6, 55],
@@ -503,7 +778,7 @@ const pin7 = createPin({           //城柵ゾーン（天球）
       labelHeight: 0.7,
       labelOffset: [0, 1.0, 0],
     });
-    root.add(pin7); clickableObjects.push(pin7);
+    root.add(pin7); clickableObjects.push(pin7); registerBluePin(7, pin7);
 
 const pin8 = createPin({           //安宅関（天球）
       pos: [0, 12, 47],
@@ -515,7 +790,7 @@ const pin8 = createPin({           //安宅関（天球）
       labelHeight: 0.7,
       labelOffset: [0, 1.0, 0],
     });
-    root.add(pin8); clickableObjects.push(pin8);
+    root.add(pin8); clickableObjects.push(pin8); registerBluePin(8, pin8);
 
  const pin9 = createPin({           //清衡館（天球）
       pos: [22, 12, 47],
@@ -527,7 +802,7 @@ const pin8 = createPin({           //安宅関（天球）
       labelHeight: 0.7,
       labelOffset: [0, 1.0, 0],
     });
-    root.add(pin9); clickableObjects.push(pin9);   
+    root.add(pin9); clickableObjects.push(pin9); registerBluePin(9, pin9);   
 
  const pin10 = createPin({           //延命千年杉（天球）
       pos: [2, 3, -10],
@@ -539,7 +814,7 @@ const pin8 = createPin({           //安宅関（天球）
       labelHeight: 0.7,
       labelOffset: [0, 1.0, 0],
     });
-    root.add(pin10); clickableObjects.push(pin10);   
+    root.add(pin10); clickableObjects.push(pin10); registerBluePin(10, pin10);   
 
  const pin11 = createPin({           //レストラン清衡（link）
       pos: [-3, 6, -50],
@@ -551,7 +826,7 @@ const pin8 = createPin({           //安宅関（天球）
       labelHeight: 0.7,
       labelOffset: [0, 1.0, 0],
     });
-    root.add(pin11); clickableObjects.push(pin11);   
+    root.add(pin11); clickableObjects.push(pin11); registerBluePin(11, pin11);   
 
  const pin12 = createPin({           //えさし郷土文化館（link）
       pos: [36, 9, -12],
@@ -563,7 +838,7 @@ const pin8 = createPin({           //安宅関（天球）
       labelHeight: 0.7,
       labelOffset: [0, 1.0, 0],
     });
-    root.add(pin12); clickableObjects.push(pin12);   
+    root.add(pin12); clickableObjects.push(pin12); registerBluePin(12, pin12);   
 
 
     
@@ -603,7 +878,22 @@ const SPIN_PINS = [
       root.add(sp);
       clickableObjects.push(sp);
       clickableSpinPins.push(sp);
+      registerSpinPin(sp);
     });
+
+    // ===== ガイドグループ割り当て =====
+    groupArea  = spinPins.slice();
+
+    groupReco  = [2,3,4,5,6,9].map(i=>bluePins[i]).filter(Boolean);
+    groupOther = [1,7,8,10,11,12].map(i=>bluePins[i]).filter(Boolean);
+
+    // 初期状態：ピンは「回収済み」（ボタンで落下させる）
+    collectPins(allPins, {immediate:true});
+
+    pinsReady = true;
+    setButtonsEnabled(true);
+
+
 
   }, undefined, (err)=>{
     console.error(err);
@@ -745,6 +1035,9 @@ const SPIN_PINS = [
   function tick(){
     const dt = clock.getDelta();
     const t  = clock.elapsedTime;
+
+    // ピンの落下/回収アニメ更新
+    updatePinTweens(performance.now());
 
     // レイキャスト
     raycaster.setFromCamera(mouseNDC, camera);
